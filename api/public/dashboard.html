@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Performance Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .vendor-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+
+        .vendor-badge {
+            background: #007bff;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .logout-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .logout-btn:hover {
+            background: #c82333;
+        }
+
+        .login-section {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            max-width: 400px;
+            margin: 50px auto;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .login-section h2 {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .login-btn {
+            width: 100%;
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .login-btn:hover {
+            background: #0056b3;
+        }
+
+        .error {
+            color: #dc3545;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8d7da;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .dashboard-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .dashboard-section h2 {
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: #f8f9fa;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge.completed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge.in-progress {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge.pending {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .metric-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <script>
+        const API_BASE_URL = 'https://your-vercel-url-here.vercel.app';
+        let vendorApiKey = localStorage.getItem('vendorApiKey');
+
+        function init() {
+            if (vendorApiKey) {
+                showDashboard();
+            } else {
+                showLogin();
+            }
+        }
+
+        function showLogin() {
+            document.getElementById('app').innerHTML = `
+                <div class="login-section">
+                    <h2>Dashboard Login</h2>
+                    <p style="text-align: center; margin-bottom: 20px; color: #666;">Enter your vendor API key to access your tasks</p>
+                    <div class="form-group">
+                        <label for="apiKey">Vendor API Key:</label>
+                        <input type="password" id="apiKey" placeholder="Enter your API key">
+                    </div>
+                    <button class="login-btn" onclick="handleLogin()">Login</button>
+                    <div class="error" id="loginError"></div>
+                </div>
+            `;
+        }
+
+        async function handleLogin() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const errorDiv = document.getElementById('loginError');
+
+            if (!apiKey) {
+                errorDiv.textContent = 'Please enter your API key';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/health`, {
+                    headers: { 'x-api-key': apiKey }
+                });
+
+                if (response.ok) {
+                    vendorApiKey = apiKey;
+                    localStorage.setItem('vendorApiKey', apiKey);
+                    showDashboard();
+                } else {
+                    errorDiv.textContent = 'Invalid API key. Please try again.';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Connection error. Check your API URL and try again.';
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        async function showDashboard() {
+            document.getElementById('app').innerHTML = `
+                <div class="container">
+                    <header>
+                        <h1>📊 Task Performance Dashboard</h1>
+                        <div class="vendor-info">
+                            <div class="vendor-badge" id="vendorBadge">Loading...</div>
+                            <button class="logout-btn" onclick="handleLogout()">Logout</button>
+                        </div>
+                    </header>
+
+                    <div class="dashboard-section">
+                        <h2>Your Tasks</h2>
+                        <div id="tasksContainer" class="loading">
+                            <div class="spinner"></div>
+                            <p>Loading tasks...</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            await Promise.all([
+                fetchTasks(),
+                updateVendorBadge()
+            ]);
+        }
+
+        async function fetchTasks() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/tasks`, {
+                    headers: { 'x-api-key': vendorApiKey }
+                });
+
+                if (!response.ok) throw new Error('Failed to fetch tasks');
+
+                const data = await response.json();
+                const tasksContainer = document.getElementById('tasksContainer');
+
+                if (!data.tasks || data.tasks.length === 0) {
+                    tasksContainer.innerHTML = '<p style="text-align: center; padding: 20px;">No tasks assigned yet.</p>';
+                    return;
+                }
+
+                const tableHtml = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Task ID</th>
+                                <th>Client</th>
+                                <th>Description</th>
+                                <th>Status</th>
+                                <th>Assigned Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.tasks.map(task => `
+                                <tr>
+                                    <td>${task.id || 'N/A'}</td>
+                                    <td>${task.client || 'N/A'}</td>
+                                    <td>${task.description || 'N/A'}</td>
+                                    <td><span class="badge ${task.status ? task.status.toLowerCase() : 'pending'}">${task.status || 'Pending'}</span></td>
+                                    <td>${task.assigned_date ? new Date(task.assigned_date).toLocaleDateString() : 'N/A'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+
+                tasksContainer.innerHTML = tableHtml;
+            } catch (error) {
+                document.getElementById('tasksContainer').innerHTML = '<p style="color: red;">Error loading tasks. Please refresh the page.</p>';
+            }
+        }
+
+        async function updateVendorBadge() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/health`, {
+                    headers: { 'x-api-key': vendorApiKey }
+                });
+
+                if (response.ok) {
+                    const vendorName = vendorApiKey.includes('ids') ? 'IDS' : 'V2 Solutions';
+                    document.getElementById('vendorBadge').textContent = `✓ Vendor: ${vendorName}`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('vendorApiKey');
+            vendorApiKey = null;
+            showLogin();
+        }
+
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
