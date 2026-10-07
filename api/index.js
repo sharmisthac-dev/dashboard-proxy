@@ -1,5 +1,4 @@
 const express = require('express');
-const path = require('path');
 
 const app = express();
 app.use(express.json());
@@ -356,28 +355,32 @@ app.get('/', (req, res) => {
     res.send(dashboardHTML);
 });
 
-// Vendor authentication middleware
-app.use((req, res, next) => {
-    if (req.path === '/' || req.path === '/index.html') {
-        return next();
-    }
-    
+// Vendor authentication middleware - ONLY for API routes, not for root
+app.use('/vendor-info', (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
     if (!apiKey || !VENDOR_KEYS[apiKey]) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-    
+    req.vendorName = VENDOR_KEYS[apiKey];
+    next();
+});
+
+app.use('/vendor-tasks', (req, res, next) => {
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey || !VENDOR_KEYS[apiKey]) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
     req.vendorName = VENDOR_KEYS[apiKey];
     next();
 });
 
 // Get vendor info
-app.get('/api/vendor-info', async (req, res) => {
+app.get('/vendor-info', (req, res) => {
     res.json({ name: req.vendorName });
 });
 
 // Get vendor tasks
-app.get('/api/vendor-tasks', async (req, res) => {
+app.get('/vendor-tasks', async (req, res) => {
     try {
         const response = await fetch(
             \`https://api.baserow.io/api/database/rows/table/\${TASKS_TABLE_ID}/\`,
