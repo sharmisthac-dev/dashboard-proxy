@@ -1,0 +1,21 @@
+{
+  "name": "dashboard-backend-proxy",
+  "version": "1.0.0",
+  "description": "Secure backend proxy for dashboard - hides Baserow API key",
+  "main": "api/index.js",
+  "scripts": {
+    "dev": "node api/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["baserow", "proxy", "dashboard"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "node-fetch": "^2.6.11"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
