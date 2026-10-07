@@ -1,12 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/",
-      "destination": "/public/dashboard.html"
-    },
-    {
       "source": "/(.*)",
-      "destination": "/public/dashboard.html"
+      "destination": "/api"
     }
   ]
 }
