@@ -55,13 +55,13 @@ async function calculateMetrics() {
     const atRiskTasks = tasks.filter(t => t.Status === 'At Risk').length;
     const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100 * 10) / 10 : 0;
 
-    // If no tasks, use client data
+    // Use client data from CLIENTS table if available
     let displayTotalTasks = totalTasks;
     let displayCompletedTasks = completedTasks;
     let displayPendingTasks = pendingTasks;
     
-    if (totalTasks === 0 && clients.length > 0) {
-      // Use aggregate data from clients table
+    if (clients.length > 0) {
+      // Prioritize aggregate data from clients table
       displayTotalTasks = clients.reduce((sum, c) => sum + (c.Total_Tasks || 0), 0);
       displayCompletedTasks = clients.reduce((sum, c) => sum + (c.Completed || 0), 0);
       displayPendingTasks = clients.reduce((sum, c) => sum + (c.Pending || 0), 0);
