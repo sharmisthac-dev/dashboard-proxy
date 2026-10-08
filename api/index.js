@@ -6,16 +6,16 @@ app.use(express.json());
 
 // Baserow API Configuration
 const BASEROW_TOKEN = process.env.BASEROW_TOKEN;
-const BASEROW_DB_ID = process.env.BASEROW_DB_ID;
-const TASKS_TABLE_ID = process.env.TASKS_TABLE_ID;
-const VENDORS_TABLE_ID = process.env.VENDORS_TABLE_ID;
-const INTERNAL_TEAM_TABLE_ID = process.env.INTERNAL_TEAM_TABLE_ID;
-const COMPLETION_LOG_TABLE_ID = process.env.COMPLETION_LOG_TABLE_ID;
+const CLIENTS_TABLE_ID = '1234385';
+const TASKS_TABLE_ID = '1234396';
+const VENDORS_TABLE_ID = '1234485';
+const INTERNAL_TEAM_TABLE_ID = '1234435';
+const COMPLETION_LOG_TABLE_ID = '1234577';
 
 const BASEROW_API = 'https://api.baserow.io/api/database/rows/table';
 
 // Helper function to fetch from Baserow
-async function fetchFromBaserow(tableId, pageSize = 100) {
+async function fetchFromBaserow(tableId, pageSize = 200) {
   try {
     const url = `${BASEROW_API}/${tableId}/?page_size=${pageSize}`;
     const response = await fetch(url, {
@@ -26,7 +26,7 @@ async function fetchFromBaserow(tableId, pageSize = 100) {
     });
     
     if (!response.ok) {
-      console.error(`Baserow API error: ${response.status}`, await response.text());
+      console.error(`Baserow API error: ${response.status}`);
       return [];
     }
     
@@ -38,21 +38,34 @@ async function fetchFromBaserow(tableId, pageSize = 100) {
   }
 }
 
-// Function to calculate metrics
+// Function to calculate metrics from actual Baserow data
 async function calculateMetrics() {
   try {
+    const clients = await fetchFromBaserow(CLIENTS_TABLE_ID);
     const tasks = await fetchFromBaserow(TASKS_TABLE_ID);
     const vendors = await fetchFromBaserow(VENDORS_TABLE_ID);
     const teamMembers = await fetchFromBaserow(INTERNAL_TEAM_TABLE_ID);
     const completionLog = await fetchFromBaserow(COMPLETION_LOG_TABLE_ID);
 
-    // Calculate overall metrics
+    // Calculate overall metrics from tasks
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(t => t.Status === 'Completed').length;
     const pendingTasks = tasks.filter(t => t.Status === 'Pending').length;
     const inProgressTasks = tasks.filter(t => t.Status === 'In Progress').length;
     const atRiskTasks = tasks.filter(t => t.Status === 'At Risk').length;
     const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100 * 10) / 10 : 0;
+
+    // If no tasks, use client data
+    let displayTotalTasks = totalTasks;
+    let displayCompletedTasks = completedTasks;
+    let displayPendingTasks = pendingTasks;
+    
+    if (totalTasks === 0 && clients.length > 0) {
+      // Use aggregate data from clients table
+      displayTotalTasks = clients.reduce((sum, c) => sum + (c.Total_Tasks || 0), 0);
+      displayCompletedTasks = clients.reduce((sum, c) => sum + (c.Completed || 0), 0);
+      displayPendingTasks = clients.reduce((sum, c) => sum + (c.Pending || 0), 0);
+    }
 
     // Calculate by handler type
     const internalTeamTasks = tasks.filter(t => t.Handler_Type === 'Internal').length;
@@ -67,16 +80,27 @@ async function calculateMetrics() {
     const v2Completed = tasks.filter(t => t.Handler_Type === 'Vendor' && t.Vendor === 'V2 Solutions' && t.Status === 'Completed').length;
     const v2Pending = tasks.filter(t => t.Handler_Type === 'Vendor' && t.Vendor === 'V2 Solutions' && t.Status === 'Pending').length;
 
-    // Clients breakdown
+    // Clients breakdown from tasks OR client table
     const clientsData = {};
-    tasks.forEach(task => {
-      if (!clientsData[task.Client]) {
-        clientsData[task.Client] = { total: 0, completed: 0, pending: 0 };
-      }
-      clientsData[task.Client].total++;
-      if (task.Status === 'Completed') clientsData[task.Client].completed++;
-      if (task.Status === 'Pending') clientsData[task.Client].pending++;
-    });
+    if (tasks.length > 0) {
+      tasks.forEach(task => {
+        if (!clientsData[task.Client]) {
+          clientsData[task.Client] = { total: 0, completed: 0, pending: 0 };
+        }
+        clientsData[task.Client].total++;
+        if (task.Status === 'Completed') clientsData[task.Client].completed++;
+        if (task.Status === 'Pending') clientsData[task.Client].pending++;
+      });
+    } else {
+      // Use client table data
+      clients.forEach(client => {
+        clientsData[client.Name] = {
+          total: client.Total_Tasks || 0,
+          completed: client.Completed || 0,
+          pending: client.Pending || 0
+        };
+      });
+    }
 
     // Team member performance
     const teamPerformance = teamMembers.map(member => {
@@ -105,12 +129,12 @@ async function calculateMetrics() {
     const v2TasksList = tasks.filter(t => t.Vendor === 'V2 Solutions').slice(0, 10);
 
     return {
-      totalTasks,
-      completedTasks,
-      pendingTasks,
+      totalTasks: displayTotalTasks,
+      completedTasks: displayCompletedTasks,
+      pendingTasks: displayPendingTasks,
       inProgressTasks,
       atRiskTasks,
-      completionRate,
+      completionRate: displayTotalTasks > 0 ? Math.round((displayCompletedTasks / displayTotalTasks) * 100 * 10) / 10 : 0,
       internalTeamTasks,
       internalCompleted,
       internalPending,
@@ -141,7 +165,7 @@ function generateDashboardHTML(metrics) {
       <head><title>Dashboard Error</title></head>
       <body style="font-family: Arial; padding: 20px;">
         <h1>Error Loading Dashboard</h1>
-        <p>Unable to fetch data from Baserow. Please check your API key and table IDs.</p>
+        <p>Unable to fetch data from Baserow.</p>
       </body>
       </html>
     `;
@@ -155,9 +179,9 @@ function generateDashboardHTML(metrics) {
     return `
       <tr>
         <td>${client}</td>
-        <td>${data.total}</td>
-        <td>${data.completed}</td>
-        <td>${data.pending}</td>
+        <td>${data.total.toLocaleString()}</td>
+        <td>${data.completed.toLocaleString()}</td>
+        <td>${data.pending.toLocaleString()}</td>
         <td>${completionPct}%</td>
         <td><span class="status ${statusClass}">${statusText}</span></td>
       </tr>
@@ -461,33 +485,18 @@ function generateDashboardHTML(metrics) {
                         <th>Status</th>
                         <th>Count</th>
                         <th>Percentage</th>
-                        <th>Details</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
                         <td><span class="status completed">Completed</span></td>
-                        <td>${metrics.completedTasks}</td>
+                        <td>${metrics.completedTasks.toLocaleString()}</td>
                         <td>${metrics.completionRate}%</td>
-                        <td>All completed tasks across teams</td>
                     </tr>
                     <tr>
                         <td><span class="status pending">Pending</span></td>
-                        <td>${metrics.pendingTasks}</td>
+                        <td>${metrics.pendingTasks.toLocaleString()}</td>
                         <td>${metrics.totalTasks > 0 ? Math.round((metrics.pendingTasks / metrics.totalTasks) * 100 * 10) / 10 : 0}%</td>
-                        <td>Awaiting completion</td>
-                    </tr>
-                    <tr>
-                        <td><span class="status in-progress">In Progress</span></td>
-                        <td>${metrics.inProgressTasks}</td>
-                        <td>${metrics.totalTasks > 0 ? Math.round((metrics.inProgressTasks / metrics.totalTasks) * 100 * 10) / 10 : 0}%</td>
-                        <td>Currently being worked on</td>
-                    </tr>
-                    <tr>
-                        <td><span class="status at-risk">At Risk</span></td>
-                        <td>${metrics.atRiskTasks}</td>
-                        <td>${metrics.totalTasks > 0 ? Math.round((metrics.atRiskTasks / metrics.totalTasks) * 100 * 10) / 10 : 0}%</td>
-                        <td>May miss deadline</td>
                     </tr>
                 </tbody>
             </table>
@@ -571,7 +580,7 @@ function generateDashboardHTML(metrics) {
                     </tr>
                 </thead>
                 <tbody>
-                    ${teamRows}
+                    ${teamRows || '<tr><td colspan="6">No team members with assigned tasks</td></tr>'}
                 </tbody>
             </table>
         </div>
@@ -650,7 +659,6 @@ app.get('/', async (req, res) => {
           <body style="font-family: Arial; padding: 20px;">
             <h1>Error Loading Dashboard</h1>
             <p>${error.message}</p>
-            <p>Check server logs for details.</p>
           </body>
           </html>
         `);
