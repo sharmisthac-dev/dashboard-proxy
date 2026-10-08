@@ -5,7 +5,7 @@ const app = express();
 app.use(express.json());
 
 // Baserow API Configuration
-const BASEROW_TOKEN = process.env.BASEROW_TOKEN;
+const BASEROW_TOKEN = process.env.BASEROW_TOKEN || 'uI7xifG0amjvJFF13BDa6HYqw4GvfyWP';
 const CLIENTS_TABLE_ID = '1234385';
 const TASKS_TABLE_ID = '1234396';
 const VENDORS_TABLE_ID = '1234485';
