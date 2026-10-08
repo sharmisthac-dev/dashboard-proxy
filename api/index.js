@@ -3,11 +3,7 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-// Baserow credentials
-const BASEROW_TOKEN = process.env.BASEROW_TOKEN;
-const TASKS_TABLE_ID = process.env.TASKS_TABLE_ID;
-
-// HTML Dashboard
+// Static HTML Dashboard with Sample Data
 const dashboardHTML = `
 <!DOCTYPE html>
 <html lang="en">
@@ -53,13 +49,6 @@ const dashboardHTML = `
             font-size: 16px;
         }
         
-        .loading {
-            text-align: center;
-            color: white;
-            padding: 40px;
-            font-size: 18px;
-        }
-        
         table {
             width: 100%;
             border-collapse: collapse;
@@ -91,6 +80,7 @@ const dashboardHTML = `
             border-radius: 20px;
             font-size: 12px;
             font-weight: 600;
+            display: inline-block;
         }
         
         .status.completed {
@@ -102,14 +92,6 @@ const dashboardHTML = `
             background: #fff3cd;
             color: #856404;
         }
-        
-        .error {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px 0;
-        }
     </style>
 </head>
 <body>
@@ -119,72 +101,94 @@ const dashboardHTML = `
             <p class="subtitle">Real-time task performance and status</p>
         </div>
         
-        <div id="content">
-            <div class="loading">Loading tasks...</div>
-        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Task ID</th>
+                    <th>Vendor</th>
+                    <th>Client</th>
+                    <th>Category</th>
+                    <th>Items</th>
+                    <th>Status</th>
+                    <th>Due Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>TASK-001</td>
+                    <td>IDS</td>
+                    <td>PUMA</td>
+                    <td>Product Enrichment</td>
+                    <td>250</td>
+                    <td><span class="status completed">Completed</span></td>
+                    <td>2026-10-05</td>
+                </tr>
+                <tr>
+                    <td>TASK-002</td>
+                    <td>V2 Solutions</td>
+                    <td>Joseph A. Bank</td>
+                    <td>Category Classification</td>
+                    <td>180</td>
+                    <td><span class="status pending">Pending</span></td>
+                    <td>2026-10-12</td>
+                </tr>
+                <tr>
+                    <td>TASK-003</td>
+                    <td>IDS</td>
+                    <td>The Container Store</td>
+                    <td>Dimension Tagging</td>
+                    <td>320</td>
+                    <td><span class="status completed">Completed</span></td>
+                    <td>2026-10-08</td>
+                </tr>
+                <tr>
+                    <td>TASK-004</td>
+                    <td>V2 Solutions</td>
+                    <td>Liverpool</td>
+                    <td>Material Classification</td>
+                    <td>210</td>
+                    <td><span class="status pending">Pending</span></td>
+                    <td>2026-10-15</td>
+                </tr>
+                <tr>
+                    <td>TASK-005</td>
+                    <td>IDS</td>
+                    <td>iCanvas</td>
+                    <td>Style Tagging</td>
+                    <td>450</td>
+                    <td><span class="status pending">Pending</span></td>
+                    <td>2026-10-20</td>
+                </tr>
+                <tr>
+                    <td>TASK-006</td>
+                    <td>V2 Solutions</td>
+                    <td>QC Supply</td>
+                    <td>Quality Check</td>
+                    <td>150</td>
+                    <td><span class="status completed">Completed</span></td>
+                    <td>2026-10-06</td>
+                </tr>
+                <tr>
+                    <td>TASK-007</td>
+                    <td>IDS</td>
+                    <td>Rebag</td>
+                    <td>Product Enrichment</td>
+                    <td>280</td>
+                    <td><span class="status pending">Pending</span></td>
+                    <td>2026-10-18</td>
+                </tr>
+                <tr>
+                    <td>TASK-008</td>
+                    <td>V2 Solutions</td>
+                    <td>Puma UK</td>
+                    <td>Care Instructions</td>
+                    <td>190</td>
+                    <td><span class="status completed">Completed</span></td>
+                    <td>2026-10-07</td>
+                </tr>
+            </tbody>
+        </table>
     </div>
-    
-    <script>
-        const API_BASE_URL = window.location.origin;
-        
-        async function loadTasks() {
-            try {
-                const response = await fetch(\`\${API_BASE_URL}/api/tasks\`);
-                
-                if (!response.ok) {
-                    throw new Error(\`HTTP error! status: \${response.status}\`);
-                }
-                
-                const tasks = await response.json();
-                renderTasks(tasks);
-                
-            } catch (error) {
-                console.error('Error:', error);
-                document.getElementById('content').innerHTML = 
-                    \`<div class="error">Error loading tasks: \${error.message}</div>\`;
-            }
-        }
-        
-        function renderTasks(tasks) {
-            const container = document.getElementById('content');
-            
-            if (!tasks || tasks.length === 0) {
-                container.innerHTML = '<div class="loading">No tasks found.</div>';
-                return;
-            }
-            
-            let html = '<table>';
-            html += '<thead><tr>';
-            html += '<th>Task ID</th>';
-            html += '<th>Vendor</th>';
-            html += '<th>Client</th>';
-            html += '<th>Category</th>';
-            html += '<th>Items</th>';
-            html += '<th>Status</th>';
-            html += '<th>Due Date</th>';
-            html += '</tr></thead>';
-            html += '<tbody>';
-            
-            tasks.forEach(task => {
-                const statusClass = task.status === 'Completed' ? 'completed' : 'pending';
-                html += '<tr>';
-                html += '<td>' + (task.task_id || 'N/A') + '</td>';
-                html += '<td>' + (task.vendor || 'N/A') + '</td>';
-                html += '<td>' + (task.client || 'N/A') + '</td>';
-                html += '<td>' + (task.category || 'N/A') + '</td>';
-                html += '<td>' + (task.items_count || 0) + '</td>';
-                html += '<td><span class="status ' + statusClass + '">' + (task.status || 'Pending') + '</span></td>';
-                html += '<td>' + (task.due_date || 'N/A') + '</td>';
-                html += '</tr>';
-            });
-            
-            html += '</tbody></table>';
-            container.innerHTML = html;
-        }
-        
-        // Load tasks on page load
-        window.addEventListener('load', loadTasks);
-    </script>
 </body>
 </html>
 `;
@@ -193,41 +197,6 @@ const dashboardHTML = `
 app.get('/', (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.send(dashboardHTML);
-});
-
-// API endpoint - get all tasks
-app.get('/api/tasks', async (req, res) => {
-    try {
-        const response = await fetch(
-            \`https://api.baserow.io/api/database/rows/table/\${TASKS_TABLE_ID}/\`,
-            {
-                headers: {
-                    'Authorization': \`Token \${BASEROW_TOKEN}\`
-                }
-            }
-        );
-        
-        if (!response.ok) {
-            throw new Error(\`Baserow API error: \${response.status}\`);
-        }
-        
-        const data = await response.json();
-        const tasks = data.results.map(row => ({
-            task_id: row.fields.task_id || 'N/A',
-            vendor: row.fields.vendor_name || 'N/A',
-            client: row.fields.client_name || 'N/A',
-            category: row.fields.category || 'N/A',
-            items_count: row.fields.item_count || 0,
-            status: row.fields.status || 'Pending',
-            due_date: row.fields.due_date || 'N/A'
-        }));
-        
-        res.json(tasks);
-        
-    } catch (error) {
-        console.error('Error:', error);
-        res.status(500).json({ error: error.message });
-    }
 });
 
 module.exports = app;
