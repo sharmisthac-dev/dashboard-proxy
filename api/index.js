@@ -1,10 +1,203 @@
 const express = require('express');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 const app = express();
 app.use(express.json());
 
-// Full Dashboard with Multi-Level Views
-const dashboardHTML = `
+// Baserow API Configuration
+const BASEROW_TOKEN = process.env.BASEROW_TOKEN;
+const BASEROW_DB_ID = process.env.BASEROW_DB_ID;
+const TASKS_TABLE_ID = process.env.TASKS_TABLE_ID;
+const VENDORS_TABLE_ID = process.env.VENDORS_TABLE_ID;
+const INTERNAL_TEAM_TABLE_ID = process.env.INTERNAL_TEAM_TABLE_ID;
+const COMPLETION_LOG_TABLE_ID = process.env.COMPLETION_LOG_TABLE_ID;
+
+const BASEROW_API = 'https://api.baserow.io/api/database/rows/table';
+
+// Helper function to fetch from Baserow
+async function fetchFromBaserow(tableId, pageSize = 100) {
+  try {
+    const url = `${BASEROW_API}/${tableId}/?page_size=${pageSize}`;
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Token ${BASEROW_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`Baserow API error: ${response.status}`, await response.text());
+      return [];
+    }
+    
+    const data = await response.json();
+    return data.results || [];
+  } catch (error) {
+    console.error('Error fetching from Baserow:', error);
+    return [];
+  }
+}
+
+// Function to calculate metrics
+async function calculateMetrics() {
+  try {
+    const tasks = await fetchFromBaserow(TASKS_TABLE_ID);
+    const vendors = await fetchFromBaserow(VENDORS_TABLE_ID);
+    const teamMembers = await fetchFromBaserow(INTERNAL_TEAM_TABLE_ID);
+    const completionLog = await fetchFromBaserow(COMPLETION_LOG_TABLE_ID);
+
+    // Calculate overall metrics
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(t => t.Status === 'Completed').length;
+    const pendingTasks = tasks.filter(t => t.Status === 'Pending').length;
+    const inProgressTasks = tasks.filter(t => t.Status === 'In Progress').length;
+    const atRiskTasks = tasks.filter(t => t.Status === 'At Risk').length;
+    const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100 * 10) / 10 : 0;
+
+    // Calculate by handler type
+    const internalTeamTasks = tasks.filter(t => t.Handler_Type === 'Internal').length;
+    const internalCompleted = tasks.filter(t => t.Handler_Type === 'Internal' && t.Status === 'Completed').length;
+    const internalPending = tasks.filter(t => t.Handler_Type === 'Internal' && t.Status === 'Pending').length;
+
+    const idsTasks = tasks.filter(t => t.Handler_Type === 'Vendor' && t.Vendor === 'IDS').length;
+    const idsCompleted = tasks.filter(t => t.Handler_Type === 'Vendor' && t.Vendor === 'IDS' && t.Status === 'Completed').length;
+    const idsPending = tasks.filter(t => t.Handler_Type === 'Vendor' && t.Vendor === 'IDS' && t.Status === 'Pending').length;
+
+    const v2Tasks = tasks.filter(t => t.Handler_Type === 'Vendor' && t.Vendor === 'V2 Solutions').length;
+    const v2Completed = tasks.filter(t => t.Handler_Type === 'Vendor' && t.Vendor === 'V2 Solutions' && t.Status === 'Completed').length;
+    const v2Pending = tasks.filter(t => t.Handler_Type === 'Vendor' && t.Vendor === 'V2 Solutions' && t.Status === 'Pending').length;
+
+    // Clients breakdown
+    const clientsData = {};
+    tasks.forEach(task => {
+      if (!clientsData[task.Client]) {
+        clientsData[task.Client] = { total: 0, completed: 0, pending: 0 };
+      }
+      clientsData[task.Client].total++;
+      if (task.Status === 'Completed') clientsData[task.Client].completed++;
+      if (task.Status === 'Pending') clientsData[task.Client].pending++;
+    });
+
+    // Team member performance
+    const teamPerformance = teamMembers.map(member => {
+      const memberTasks = tasks.filter(t => t.Assigned_To === member.Name);
+      const completed = memberTasks.filter(t => t.Status === 'Completed').length;
+      const pending = memberTasks.filter(t => t.Status === 'Pending').length;
+      const total = memberTasks.length;
+      const completionPct = total > 0 ? Math.round((completed / total) * 100 * 10) / 10 : 0;
+      
+      let status = 'Fair';
+      if (completionPct >= 85) status = 'Excellent';
+      else if (completionPct >= 75) status = 'Good';
+      
+      return {
+        name: member.Name,
+        total,
+        completed,
+        pending,
+        completionPct,
+        status
+      };
+    }).filter(t => t.total > 0);
+
+    // Vendor task details
+    const idsTasksList = tasks.filter(t => t.Vendor === 'IDS').slice(0, 10);
+    const v2TasksList = tasks.filter(t => t.Vendor === 'V2 Solutions').slice(0, 10);
+
+    return {
+      totalTasks,
+      completedTasks,
+      pendingTasks,
+      inProgressTasks,
+      atRiskTasks,
+      completionRate,
+      internalTeamTasks,
+      internalCompleted,
+      internalPending,
+      idsTasks,
+      idsCompleted,
+      idsPending,
+      v2Tasks,
+      v2Completed,
+      v2Pending,
+      clientsData,
+      teamPerformance,
+      idsTasksList,
+      v2TasksList,
+      tasks
+    };
+  } catch (error) {
+    console.error('Error calculating metrics:', error);
+    return null;
+  }
+}
+
+// Generate dashboard HTML
+function generateDashboardHTML(metrics) {
+  if (!metrics) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head><title>Dashboard Error</title></head>
+      <body style="font-family: Arial; padding: 20px;">
+        <h1>Error Loading Dashboard</h1>
+        <p>Unable to fetch data from Baserow. Please check your API key and table IDs.</p>
+      </body>
+      </html>
+    `;
+  }
+
+  const clientsRows = Object.entries(metrics.clientsData).map(([client, data]) => {
+    const completionPct = data.total > 0 ? Math.round((data.completed / data.total) * 100 * 10) / 10 : 0;
+    const statusClass = completionPct >= 70 ? 'completed' : completionPct >= 50 ? 'pending' : 'at-risk';
+    const statusText = completionPct >= 70 ? 'On Track' : completionPct >= 50 ? 'Behind' : 'At Risk';
+    
+    return `
+      <tr>
+        <td>${client}</td>
+        <td>${data.total}</td>
+        <td>${data.completed}</td>
+        <td>${data.pending}</td>
+        <td>${completionPct}%</td>
+        <td><span class="status ${statusClass}">${statusText}</span></td>
+      </tr>
+    `;
+  }).join('');
+
+  const teamRows = metrics.teamPerformance.map(member => `
+    <tr>
+      <td>${member.name}</td>
+      <td>${member.total}</td>
+      <td>${member.completed}</td>
+      <td>${member.pending}</td>
+      <td>${member.completionPct}%</td>
+      <td><span class="status ${member.completionPct >= 85 ? 'completed' : member.completionPct >= 75 ? 'completed' : 'pending'}">${member.status}</span></td>
+    </tr>
+  `).join('');
+
+  const idsTasksRows = metrics.idsTasksList.map(task => `
+    <tr>
+      <td>${task.Task_ID}</td>
+      <td>${task.Client}</td>
+      <td>${task.Category || 'N/A'}</td>
+      <td>${task.Items || 'N/A'}</td>
+      <td><span class="status ${task.Status.toLowerCase()}">${task.Status}</span></td>
+      <td>${task.Due_Date || 'N/A'}</td>
+    </tr>
+  `).join('');
+
+  const v2TasksRows = metrics.v2TasksList.map(task => `
+    <tr>
+      <td>${task.Task_ID}</td>
+      <td>${task.Client}</td>
+      <td>${task.Category || 'N/A'}</td>
+      <td>${task.Items || 'N/A'}</td>
+      <td><span class="status ${task.Status.toLowerCase()}">${task.Status}</span></td>
+      <td>${task.Due_Date || 'N/A'}</td>
+    </tr>
+  `).join('');
+
+  return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -46,6 +239,13 @@ const dashboardHTML = `
         .subtitle {
             color: #666;
             font-size: 16px;
+            margin-bottom: 10px;
+        }
+        
+        .last-updated {
+            color: #999;
+            font-size: 12px;
+            font-style: italic;
         }
         
         .kpi-container {
@@ -83,6 +283,7 @@ const dashboardHTML = `
             padding: 15px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+            flex-wrap: wrap;
         }
         
         .tab-btn {
@@ -202,23 +403,24 @@ const dashboardHTML = `
         <div class="header">
             <h1>Task Performance Dashboard</h1>
             <p class="subtitle">Real-time task tracking and team performance analytics</p>
+            <p class="last-updated">Last updated: ${new Date().toLocaleString()}</p>
             
             <div class="kpi-container">
                 <div class="kpi-card">
                     <div class="kpi-label">Total Tasks</div>
-                    <div class="kpi-value">2,847</div>
+                    <div class="kpi-value">${metrics.totalTasks.toLocaleString()}</div>
                 </div>
                 <div class="kpi-card">
                     <div class="kpi-label">Completed</div>
-                    <div class="kpi-value">1,923</div>
+                    <div class="kpi-value">${metrics.completedTasks.toLocaleString()}</div>
                 </div>
                 <div class="kpi-card">
                     <div class="kpi-label">Pending</div>
-                    <div class="kpi-value">756</div>
+                    <div class="kpi-value">${metrics.pendingTasks.toLocaleString()}</div>
                 </div>
                 <div class="kpi-card">
                     <div class="kpi-label">Completion Rate</div>
-                    <div class="kpi-value">67.5%</div>
+                    <div class="kpi-value">${metrics.completionRate}%</div>
                 </div>
             </div>
         </div>
@@ -237,18 +439,18 @@ const dashboardHTML = `
             <div class="metric-row">
                 <div class="metric-box">
                     <div class="metric-label">Internal Team</div>
-                    <div class="metric-value">1,200</div>
-                    <div class="metric-detail">456 completed | 744 pending</div>
+                    <div class="metric-value">${metrics.internalTeamTasks}</div>
+                    <div class="metric-detail">${metrics.internalCompleted} completed | ${metrics.internalPending} pending</div>
                 </div>
                 <div class="metric-box">
                     <div class="metric-label">IDS (Vendor)</div>
-                    <div class="metric-value">850</div>
-                    <div class="metric-detail">520 completed | 330 pending</div>
+                    <div class="metric-value">${metrics.idsTasks}</div>
+                    <div class="metric-detail">${metrics.idsCompleted} completed | ${metrics.idsPending} pending</div>
                 </div>
                 <div class="metric-box">
                     <div class="metric-label">V2 Solutions (Vendor)</div>
-                    <div class="metric-value">797</div>
-                    <div class="metric-detail">947 completed | 350 pending</div>
+                    <div class="metric-value">${metrics.v2Tasks}</div>
+                    <div class="metric-detail">${metrics.v2Completed} completed | ${metrics.v2Pending} pending</div>
                 </div>
             </div>
             
@@ -265,26 +467,26 @@ const dashboardHTML = `
                 <tbody>
                     <tr>
                         <td><span class="status completed">Completed</span></td>
-                        <td>1,923</td>
-                        <td>67.5%</td>
+                        <td>${metrics.completedTasks}</td>
+                        <td>${metrics.completionRate}%</td>
                         <td>All completed tasks across teams</td>
                     </tr>
                     <tr>
                         <td><span class="status pending">Pending</span></td>
-                        <td>756</td>
-                        <td>26.6%</td>
+                        <td>${metrics.pendingTasks}</td>
+                        <td>${metrics.totalTasks > 0 ? Math.round((metrics.pendingTasks / metrics.totalTasks) * 100 * 10) / 10 : 0}%</td>
                         <td>Awaiting completion</td>
                     </tr>
                     <tr>
                         <td><span class="status in-progress">In Progress</span></td>
-                        <td>124</td>
-                        <td>4.4%</td>
+                        <td>${metrics.inProgressTasks}</td>
+                        <td>${metrics.totalTasks > 0 ? Math.round((metrics.inProgressTasks / metrics.totalTasks) * 100 * 10) / 10 : 0}%</td>
                         <td>Currently being worked on</td>
                     </tr>
                     <tr>
                         <td><span class="status at-risk">At Risk</span></td>
-                        <td>44</td>
-                        <td>1.5%</td>
+                        <td>${metrics.atRiskTasks}</td>
+                        <td>${metrics.totalTasks > 0 ? Math.round((metrics.atRiskTasks / metrics.totalTasks) * 100 * 10) / 10 : 0}%</td>
                         <td>May miss deadline</td>
                     </tr>
                 </tbody>
@@ -306,46 +508,7 @@ const dashboardHTML = `
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td>PUMA</td>
-                        <td>650</td>
-                        <td>450</td>
-                        <td>200</td>
-                        <td>69.2%</td>
-                        <td><span class="status completed">On Track</span></td>
-                    </tr>
-                    <tr>
-                        <td>Joseph A. Bank</td>
-                        <td>520</td>
-                        <td>380</td>
-                        <td>140</td>
-                        <td>73.1%</td>
-                        <td><span class="status completed">On Track</span></td>
-                    </tr>
-                    <tr>
-                        <td>The Container Store</td>
-                        <td>580</td>
-                        <td>350</td>
-                        <td>230</td>
-                        <td>60.3%</td>
-                        <td><span class="status pending">Behind</span></td>
-                    </tr>
-                    <tr>
-                        <td>Rebag</td>
-                        <td>750</td>
-                        <td>550</td>
-                        <td>200</td>
-                        <td>73.3%</td>
-                        <td><span class="status completed">On Track</span></td>
-                    </tr>
-                    <tr>
-                        <td>Liverpool</td>
-                        <td>367</td>
-                        <td>193</td>
-                        <td>174</td>
-                        <td>52.6%</td>
-                        <td><span class="status at-risk">At Risk</span></td>
-                    </tr>
+                    ${clientsRows}
                 </tbody>
             </table>
         </div>
@@ -368,26 +531,26 @@ const dashboardHTML = `
                     <tr>
                         <td>Internal Team</td>
                         <td>Assigned</td>
-                        <td>1,200</td>
-                        <td>876</td>
-                        <td>324</td>
-                        <td>73.0%</td>
+                        <td>${metrics.internalTeamTasks}</td>
+                        <td>${metrics.internalCompleted}</td>
+                        <td>${metrics.internalPending}</td>
+                        <td>${metrics.internalTeamTasks > 0 ? Math.round((metrics.internalCompleted / metrics.internalTeamTasks) * 100 * 10) / 10 : 0}%</td>
                     </tr>
                     <tr>
                         <td>IDS</td>
                         <td>Vendor (P2)</td>
-                        <td>850</td>
-                        <td>520</td>
-                        <td>330</td>
-                        <td>61.2%</td>
+                        <td>${metrics.idsTasks}</td>
+                        <td>${metrics.idsCompleted}</td>
+                        <td>${metrics.idsPending}</td>
+                        <td>${metrics.idsTasks > 0 ? Math.round((metrics.idsCompleted / metrics.idsTasks) * 100 * 10) / 10 : 0}%</td>
                     </tr>
                     <tr>
                         <td>V2 Solutions</td>
                         <td>Vendor (P1)</td>
-                        <td>797</td>
-                        <td>527</td>
-                        <td>270</td>
-                        <td>66.1%</td>
+                        <td>${metrics.v2Tasks}</td>
+                        <td>${metrics.v2Completed}</td>
+                        <td>${metrics.v2Pending}</td>
+                        <td>${metrics.v2Tasks > 0 ? Math.round((metrics.v2Completed / metrics.v2Tasks) * 100 * 10) / 10 : 0}%</td>
                     </tr>
                 </tbody>
             </table>
@@ -408,62 +571,7 @@ const dashboardHTML = `
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td>Tejas Tayade</td>
-                        <td>180</td>
-                        <td>175</td>
-                        <td>5</td>
-                        <td>97.2%</td>
-                        <td><span class="status completed">Excellent</span></td>
-                    </tr>
-                    <tr>
-                        <td>Eshwari Bhutada</td>
-                        <td>210</td>
-                        <td>165</td>
-                        <td>45</td>
-                        <td>78.6%</td>
-                        <td><span class="status completed">Good</span></td>
-                    </tr>
-                    <tr>
-                        <td>Nitesh Harne</td>
-                        <td>195</td>
-                        <td>118</td>
-                        <td>77</td>
-                        <td>60.5%</td>
-                        <td><span class="status pending">Fair</span></td>
-                    </tr>
-                    <tr>
-                        <td>Anuja Patil</td>
-                        <td>165</td>
-                        <td>142</td>
-                        <td>23</td>
-                        <td>86.1%</td>
-                        <td><span class="status completed">Good</span></td>
-                    </tr>
-                    <tr>
-                        <td>Pallavee Gawande</td>
-                        <td>155</td>
-                        <td>95</td>
-                        <td>60</td>
-                        <td>61.3%</td>
-                        <td><span class="status pending">Fair</span></td>
-                    </tr>
-                    <tr>
-                        <td>Shrikant Shinde</td>
-                        <td>175</td>
-                        <td>137</td>
-                        <td>38</td>
-                        <td>78.3%</td>
-                        <td><span class="status completed">Good</span></td>
-                    </tr>
-                    <tr>
-                        <td>Vinita Shende</td>
-                        <td>170</td>
-                        <td>144</td>
-                        <td>26</td>
-                        <td>84.7%</td>
-                        <td><span class="status completed">Good</span></td>
-                    </tr>
+                    ${teamRows}
                 </tbody>
             </table>
         </div>
@@ -485,30 +593,7 @@ const dashboardHTML = `
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td>TASK-V2-001</td>
-                        <td>PUMA</td>
-                        <td>Product Enrichment</td>
-                        <td>280</td>
-                        <td><span class="status completed">Completed</span></td>
-                        <td>2026-10-05</td>
-                    </tr>
-                    <tr>
-                        <td>TASK-V2-002</td>
-                        <td>Rebag</td>
-                        <td>Dimension Tagging</td>
-                        <td>320</td>
-                        <td><span class="status completed">Completed</span></td>
-                        <td>2026-10-08</td>
-                    </tr>
-                    <tr>
-                        <td>TASK-V2-003</td>
-                        <td>The Container Store</td>
-                        <td>Category Classification</td>
-                        <td>250</td>
-                        <td><span class="status pending">Pending</span></td>
-                        <td>2026-10-15</td>
-                    </tr>
+                    ${idsTasksRows || '<tr><td colspan="6">No tasks found</td></tr>'}
                 </tbody>
             </table>
             
@@ -525,30 +610,7 @@ const dashboardHTML = `
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td>TASK-V2S-001</td>
-                        <td>Joseph A. Bank</td>
-                        <td>Material Classification</td>
-                        <td>210</td>
-                        <td><span class="status completed">Completed</span></td>
-                        <td>2026-10-06</td>
-                    </tr>
-                    <tr>
-                        <td>TASK-V2S-002</td>
-                        <td>Liverpool</td>
-                        <td>Quality Check</td>
-                        <td>195</td>
-                        <td><span class="status pending">Pending</span></td>
-                        <td>2026-10-12</td>
-                    </tr>
-                    <tr>
-                        <td>TASK-V2S-003</td>
-                        <td>iCanvas</td>
-                        <td>Style Tagging</td>
-                        <td>392</td>
-                        <td><span class="status in-progress">In Progress</span></td>
-                        <td>2026-10-20</td>
-                    </tr>
+                    ${v2TasksRows || '<tr><td colspan="6">No tasks found</td></tr>'}
                 </tbody>
             </table>
         </div>
@@ -556,29 +618,43 @@ const dashboardHTML = `
     
     <script>
         function switchTab(tabName) {
-            // Hide all tabs
             const tabs = document.querySelectorAll('.tab-content');
             tabs.forEach(tab => tab.classList.remove('active'));
             
-            // Remove active class from all buttons
             const buttons = document.querySelectorAll('.tab-btn');
             buttons.forEach(btn => btn.classList.remove('active'));
             
-            // Show selected tab
             document.getElementById(tabName).classList.add('active');
-            
-            // Add active class to clicked button
             event.target.classList.add('active');
         }
     </script>
 </body>
 </html>
-`;
+  `;
+}
 
-// Serve dashboard at root
-app.get('/', (req, res) => {
-    res.setHeader('Content-Type', 'text/html');
-    res.send(dashboardHTML);
+// Main route
+app.get('/', async (req, res) => {
+    try {
+        const metrics = await calculateMetrics();
+        const html = generateDashboardHTML(metrics);
+        res.setHeader('Content-Type', 'text/html');
+        res.send(html);
+    } catch (error) {
+        console.error('Error serving dashboard:', error);
+        res.setHeader('Content-Type', 'text/html');
+        res.send(`
+          <!DOCTYPE html>
+          <html>
+          <head><title>Dashboard Error</title></head>
+          <body style="font-family: Arial; padding: 20px;">
+            <h1>Error Loading Dashboard</h1>
+            <p>${error.message}</p>
+            <p>Check server logs for details.</p>
+          </body>
+          </html>
+        `);
+    }
 });
 
 module.exports = app;
